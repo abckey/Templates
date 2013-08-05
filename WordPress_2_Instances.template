@@ -87,6 +87,19 @@
   },
 
   "Resources" : {
+  
+   "IPAddress" : {
+      "Type" : "AWS::EC2::EIP"
+    },
+
+    "IPAssoc" : {
+      "Type" : "AWS::EC2::EIPAssociation",
+      "Properties" : {
+        "InstanceId" : { "Ref" : "WebServer" },
+        "EIP" : { "Ref" : "IPAddress" }
+      }
+    },
+  
     "DatabaseServer": {
       "Type": "AWS::EC2::Instance",
       "Metadata" : {
