@@ -92,6 +92,19 @@
   },
 
   "Resources" : {
+  
+    "IPAddress" : {
+      "Type" : "AWS::EC2::EIP"
+    },
+
+    "IPAssoc" : {
+      "Type" : "AWS::EC2::EIPAssociation",
+      "Properties" : {
+        "InstanceId" : { "Ref" : "WikiDatabase" },
+        "EIP" : { "Ref" : "IPAddress" }
+      }
+    },
+  
     "CfnUser" : {
       "Type" : "AWS::IAM::User"
     },
