@@ -1,0 +1,254 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "AWS CloudFormation Sample Template for NSN CloudFrameWork for Core(C4C)",
+
+  "Parameters" : {
+
+    "KeyName" : {
+      "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instances",
+      "Type" : "String"
+    },
+
+    "InstanceType" : {
+      "Description" : "WebServer EC2 instance type",
+      "Type" : "String",
+      "Default" : "m1.small",
+      "AllowedValues" : [ "m1.tiny", "m1.small", "m1.medium", "m1.large", "m1.xlarge" ],
+      "ConstraintDescription" : "must be a valid EC2 instance type."
+    },
+
+    "LinuxDistribution": {
+      "Default": "RHEL-6.3",
+      "Description" : "Distribution of choice",
+      "Type": "String",
+      "AllowedValues" : [ "F18", "F17", "U10", "RHEL-6.1", "RHEL-6.2", "RHEL-6.3" ]
+    },
+
+    "HupPollInterval": {
+      "Default": "1",
+      "Description" : "Interval for cfn-hup",
+      "Type": "String"
+    }
+  },
+
+  "Mappings" : {
+    "AWSInstanceType2Arch" : {
+      "m1.tiny"    : { "Arch" : "32" },
+      "m1.small"    : { "Arch" : "64" },
+      "m1.medium"    : { "Arch" : "64" },
+      "m1.large"   : { "Arch" : "64" },
+      "m1.xlarge"   : { "Arch" : "64" }
+    },
+
+    "DistroArch2AMI": {
+      "F18"      : { "32" : "F18-i386-cfntools", "64" : "F18-x86_64-cfntools" },
+      "F17"      : { "32" : "F17-i386-cfntools", "64" : "F17-x86_64-cfntools" },
+      "U10"      : { "32" : "U10-i386-cfntools", "64" : "U10-x86_64-cfntools" },
+      "RHEL-6.1" : { "32" : "rhel61-i386-cfntools", "64" : "rhel61-x86_64-cfntools" },
+      "RHEL-6.2" : { "32" : "rhel62-i386-cfntools", "64" : "rhel62-x86_64-cfntools" },
+      "RHEL-6.3" : { "32" : "rhel63-i386-cfntools", "64" : "rhel63-x86_64-cfntools" }
+    }
+  },
+
+  "Resources" : {
+    "CfnUser" : {
+      "Type" : "AWS::IAM::User"
+    },
+    "C4CServerKeys" : {
+      "Type" : "AWS::IAM::AccessKey",
+      "Properties" : {
+        "UserName" : {"Ref": "CfnUser"}
+      }
+    },
+
+    "C4CServicesRestartPolicy" : {
+      "Type" : "OS::Heat::HARestarter",
+      "Properties" : {
+        "InstanceId" : { "Ref" : "c4c-vm" }
+      }
+    },
+
+    "C4CFailureAlarm": {
+     "Type": "AWS::CloudWatch::Alarm",
+     "Properties": {
+        "AlarmDescription": "Restart the c4c services > 3 times in 10 minutes",
+        "MetricName": "ServiceFailure",
+        "Namespace": "system/linux",
+        "Statistic": "SampleCount",
+        "Period": "300",
+        "EvaluationPeriods": "1",
+        "Threshold": "2",
+        "AlarmActions": [ { "Ref": "C4CServicesRestartPolicy" } ],
+        "ComparisonOperator": "GreaterThanThreshold"
+      }
+    },
+
+
+    "IPAddress" : {
+      "Type" : "AWS::EC2::EIP"
+    },
+
+    "IPAssoc" : {
+      "Type" : "AWS::EC2::EIPAssociation",
+      "Properties" : {
+        "InstanceId" : { "Ref" : "c4c-vm" },
+        "EIP" : { "Ref" : "IPAddress" }
+      }
+    },
+
+    "c4c-vm": {
+      "Type": "AWS::EC2::Instance",
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "config" : {
+            "files" : {
+              "/etc/cfn/cfn-credentials" : {
+                "content" : { "Fn::Join" : ["", [
+                  "AWSAccessKeyId=", { "Ref" : "C4CServerKeys" }, "\n",
+                  "AWSSecretKey=", {"Fn::GetAtt": ["C4CServerKeys",
+                                    "SecretAccessKey"]}, "\n"
+                ]]},
+                "mode"    : "000400",
+                "owner"   : "root",
+                "group"   : "root"
+              },
+
+              "/etc/cfn/cfn-hup.conf" : {
+                "content" : { "Fn::Join" : ["", [
+                  "[main]\n",
+                  "stack=", { "Ref" : "AWS::StackName" }, "\n",
+                  "credential-file=/etc/cfn/cfn-credentials\n",
+                  "region=", { "Ref" : "AWS::Region" }, "\n",
+                  "interval=", { "Ref" : "HupPollInterval" }, "\n"
+                ]]},
+                "mode"    : "000400",
+                "owner"   : "root",
+                "group"   : "root"
+              },
+
+              "/etc/cfn/notify-on-c4c-restarted" : {
+                "content" : { "Fn::Join" : ["", [
+                "#!/bin/sh\n",
+                "/opt/aws/bin/cfn-push-stats --watch ",
+                { "Ref" : "C4CFailureAlarm" },
+                " --service-failure\n"
+                ]]},
+                "mode"    : "000700",
+                "owner"   : "root",
+                "group"   : "root"
+              },
+
+              "/tmp/cfn-hup-crontab.txt" : {
+                "content" : { "Fn::Join" : ["", [
+                "MAIL=\"\"\n",
+                "\n",
+                "* * * * * /opt/aws/bin/cfn-hup -f\n"
+                ]]},
+                "mode"    : "000600",
+                "owner"   : "root",
+                "group"   : "root"
+              },
+
+              "/etc/cfn/hooks.conf" : {
+                "content": { "Fn::Join" : ["", [
+                  "[cfn-http-restarted]\n",
+                  "triggers=service.restarted\n",
+                  "path=Resources.c4c-vm.Metadata\n",
+                  "action=/etc/cfn/notify-on-c4c-restarted\n",
+                  "runas=root\n"
+                ]]},
+                "mode"    : "000400",
+                "owner"   : "root",
+                "group"   : "root"
+              }
+            },
+            "packages" : {
+              "yum" : {
+                "java-1.7.0-openjdk-devel"       : [],
+                "c4c-bootstrap"        : [],
+                "c4c-domain-manager" : [],
+                "c4c-monitoring"        : [],
+                "c4c-ui-rpm"    : []
+              }
+            },
+
+
+            "services" : {
+              "sysvinit" : {
+                "c4c-dm"           : { "enabled" : "true", "ensureRunning" : "true" },
+                "c4c-monitoring"   : { "enabled" : "true", "ensureRunning" : "true" },
+                "tomcat6"          : { "enabled" : "true", "ensureRunning" : "true" }
+              }
+            }
+
+
+          }
+        }
+      },
+      "Properties": {
+        "ImageId" : { "Fn::FindInMap" : [ "DistroArch2AMI", { "Ref" : "LinuxDistribution" },
+                          { "Fn::FindInMap" : [ "AWSInstanceType2Arch", { "Ref" : "InstanceType" }, "Arch" ] } ] },
+        "InstanceType"   : { "Ref" : "InstanceType" },
+        "KeyName"        : { "Ref" : "KeyName" },
+        "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#!/bin/bash -v\n",
+          "# Helper function\n",
+          "function error_exit\n",
+          "{\n",
+          "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '", { "Ref" : "WaitHandle" }, "'\n",
+          "  exit 1\n",
+          "}\n",
+
+          "/opt/aws/bin/cfn-init -s ", { "Ref" : "AWS::StackName" },
+          " -r c4c-vm ",
+          " --access-key ", { "Ref" : "C4CServerKeys" },
+          " --secret-key ", {"Fn::GetAtt": ["C4CServerKeys", "SecretAccessKey"]},
+          " --region ", { "Ref" : "AWS::Region" },
+          " || error_exit 'Failed to run cfn-init'\n",
+
+          "#Retrive mocked c4c ovf enviroment\n",
+          "wget http://10.68.89.101/cfn/c4c-127-ovf.env -O /etc/c4c-bootstrap-mock.ovfenvironment\n",
+
+          "#Run bootstrap to setup C4C according to mocked ovf environment\n",
+          "export C4C_BOOTSTRAP_DEBUG_OVFMODE=MOCKED \n",
+          "/etc/init.d/c4c-bootstrap start\n",
+
+          "#Restart C4C services\n",
+          "service c4c-dm restart\n",
+          "service c4c-monitoring restart\n",
+          "service tomcat6 restart\n",
+
+          "# install cfn-hup crontab\n",
+          "crontab /tmp/cfn-hup-crontab.txt\n",
+
+          "# All is well so signal success\n",
+          "/opt/aws/bin/cfn-signal -e 0 -r \"C4C server setup complete\" '",
+          { "Ref" : "WaitHandle" }, "'\n"
+        ]]}}
+      }
+    },
+
+
+    "WaitHandle" : {
+      "Type" : "AWS::CloudFormation::WaitConditionHandle"
+    },
+
+    "WaitCondition" : {
+      "Type" : "AWS::CloudFormation::WaitCondition",
+      "DependsOn" : "c4c-vm",
+      "Properties" : {
+        "Handle" : {"Ref" : "WaitHandle"},
+        "Count" : "1",
+        "Timeout" : "600"
+      }
+    }
+  },
+
+  "Outputs" : {
+    "WebsiteURL" : {
+      "Value" : { "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : [ "c4c-vm", "PublicIp" ]}, ":8080/c4c-gui"]] },
+      "Description" : "URL for C4C WebGui"
+    }
+  }
+}
