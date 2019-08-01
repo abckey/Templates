@@ -1,5 +1,5 @@
 name,ring,quadrant,isNew,description
-NeSo,Assess,Low,True,"  Network Service Orchestration"
+NeSo,Assess,Low,True,"Network Service Orchestration"
 NW slicing,Expore,Disruptive,True,"  Network slicing"
 400G optics,Trail,Medium,True,"  400G optics for transport"
 K8S,Adopt,High,TRUE,"  K8S platform"
