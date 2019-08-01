@@ -1,0 +1,7 @@
+name,ring,quadrant,isNew,description
+6G core,Discovery,High,TRUE,"  It would be nice to have 6G core before 5G core"
+NeSo,Assess,Low,True,"  Network Service Orchestration"
+NW slicing,Expore,Disruptive,True,"  Network slicing"
+400G optics,Trail,Medium,True,"  400G optics for transport"
+K8S,Adopt,High,TRUE,"  K8S platform"
+5G Core,Adopt,High,FALSE,"  full virtualized 5g core components"
